@@ -1,4 +1,6 @@
-[![Build Status](https://travis-ci.org/RESTful-Drupal/restful.svg?branch=7.x-1.x)](https://travis-ci.org/RESTful-Drupal/restful)
+**7.x-1.x** [![Build Status](https://travis-ci.org/RESTful-Drupal/restful.svg?branch=7.x-1.x)](https://travis-ci.org/RESTful-Drupal/restful)
+
+**7.x-2.x** [![Build Status](https://travis-ci.org/RESTful-Drupal/restful.svg?branch=7.x-2.x)](https://travis-ci.org/RESTful-Drupal/restful)
 
 # RESTful best practices for Drupal
 
@@ -7,7 +9,7 @@ practices for security, performance, and usability.
 
 
 ## Concept
-Here are the differences between RESTful and other modules, such as RestWs and
+These are the differences between RESTful and other modules, such as RestWs and
 Services Entity:
 
 * RESTful requires explicitly declaring the exposed API. When enabling
@@ -28,9 +30,8 @@ control.
 
 ## Module dependencies
 
-  * [Entity API](https://drupal.org/project/entity), with the following patches:
-  * [$wrapper->access() might be wrong for single entity reference field](https://www.drupal.org/node/2264079#comment-8911637)
-  * [Prevent notice in entity_metadata_no_hook_node_access() when node is not saved](https://drupal.org/node/2086225#comment-8768373)
+  * [Entity API](https://drupal.org/project/entity), with the following patch:
+  * [Prevent notice in entity_metadata_no_hook_node_access() when node is not saved](https://www.drupal.org/node/2086225#comment-9627407)
 
 ## Recipes
 Read even more examples on how to use the RESTful module in the [module documentation
@@ -64,7 +65,7 @@ dependencies[] = restful
  }
 ```
 
-####restful\_custom/plugins/restful/myplugin.inc
+####restful\_custom/plugins/restful/articles.inc
 ```php
 $plugin = array(
   'label' => t('Articles'),
@@ -76,6 +77,9 @@ $plugin = array(
   'class' => 'RestfulCustomResource',
 );
 ```
+The `resource` key determines the root URL of the resource.  The `name` key must match
+the filename of the plugin: in this case, the name is `articles`, and therefore, the
+filename is `articles.inc`.
 
 ####restful\_custom/plugins/restful/RestfulCustomResource.class.php
 ```php

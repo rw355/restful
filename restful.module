@@ -426,7 +426,28 @@ function restful_menu_access_callback($resource_name, $version = NULL) {
     return;
   }
 
-  return $handler->access();
+  // Set the request and method on the handler, so access callbacks have full
+  // access to the request and account.
+  $path = func_get_args();
+  array_shift($path);
+  if (preg_match('/^v\d+(\.\d+)?$/', $version)) {
+    array_shift($path);
+  }
+  $path = implode('/', $path);
+
+  $request = restful_parse_request();
+  $handler->setPath($path);
+  $handler->setMethod($method);
+  $handler->setRequest($request);
+
+  try {
+    $access = $handler->access();
+    return $access;
+  }
+  catch(Exception $e) {
+    return FALSE;
+  }
+
 }
 
 /**
@@ -445,11 +466,6 @@ function restful_menu_access_callback($resource_name, $version = NULL) {
  * @see http://tools.ietf.org/html/draft-nottingham-http-problem-06
  */
 function restful_menu_process_callback($resource_name, $version = NULL) {
-  $path = func_get_args();
-  array_shift($path);
-  if (preg_match('/^v\d+(\.\d+)?$/', $version)) {
-    array_shift($path);
-  }
   list($major_version, $minor_version) = \RestfulBase::getVersionFromRequest();
   $handler = restful_get_restful_handler($resource_name, $major_version, $minor_version);
   if (!$handler instanceof \RestfulDataProviderInterface) {
@@ -458,8 +474,7 @@ function restful_menu_process_callback($resource_name, $version = NULL) {
 
   // Vary the response with the presence of the X-API-Version or Accept headers.
   $headers = $handler->getHttpHeaders();
-  $vary = empty($headers['Vary']) ? '' : $headers['Vary'];
-  $additional_variations = array($vary, 'Accept');
+  $additional_variations = empty($headers['Vary']) ? array('Accept') : array($headers['Vary'], 'Accept');
   if (\RestfulManager::getRequestHttpHeader('X-API-Version')) {
     $additional_variations[] = 'X-API-Version';
   }
@@ -472,15 +487,21 @@ function restful_menu_process_callback($resource_name, $version = NULL) {
     $handler->setHttpHeaders('Access-Control-Allow-Origin', $allowed_origin);
   }
 
-  $path = implode('/', $path);
-
   $method = strtoupper($_SERVER['REQUEST_METHOD']);
 
   if ($method == \RestfulInterface::POST && \RestfulManager::getRequestHttpHeader('X-HTTP-Method-Override')) {
-    $method = strtoupper(\RestfulManager::getRequestHttpHeader('X-HTTP-Method-Override'));
+    $method = \RestfulManager::getRequestHttpHeader('X-HTTP-Method-Override');
   }
 
   $method = strtolower($method);
+
+  $path = func_get_args();
+  array_shift($path);
+  if (preg_match('/^v\d+(\.\d+)?$/', $version)) {
+    array_shift($path);
+  }
+  $path = implode('/', $path);
+
   $request = restful_parse_request();
 
   try {
@@ -505,6 +526,17 @@ function restful_menu_process_callback($resource_name, $version = NULL) {
     foreach ($e->getHeaders() as $header_name => $header_value) {
       drupal_add_http_header($header_name, $header_value);
     }
+
+    if ($e->getCode() < 500) {
+      // Even though it's an exception, it's in fact not a server error - it
+      // might be just access denied, or a bad request, so we just want to log
+      // it, but without marking it as an actual exception.
+      watchdog('restful', $e->getMessage());
+    }
+    else {
+      // This one should really be considered as an error.
+      watchdog_exception('restful', $e);
+    }
   }
   catch (Exception $e) {
     $result = array(
@@ -512,6 +544,8 @@ function restful_menu_process_callback($resource_name, $version = NULL) {
       'title' => $e->getMessage(),
       'status' => 500,
     );
+
+    watchdog_exception('restful', $e);
   }
 
   // Adhere to the API Problem draft proposal.
@@ -527,7 +561,11 @@ function restful_menu_process_callback($resource_name, $version = NULL) {
  *   The request array.
  */
 function restful_parse_request() {
-  $request = NULL;
+  $request = &drupal_static(__FUNCTION__, NULL);
+  if ($request) {
+    return $request;
+  }
+
   $method = strtoupper($_SERVER['REQUEST_METHOD']);
 
   if ($method == \RestfulInterface::GET) {
@@ -537,7 +575,7 @@ function restful_parse_request() {
     $request = $_POST;
   }
 
-  if (!$request && $query_string = file_get_contents('php://input')) {
+  if (!$request && $query_string = _restful_get_query_string_from_php_input()) {
     // When trying to POST using curl on simpleTest it doesn't reach
     // $_POST, so we try to re-grab it here.
     // Also, sometimes the client might send the input still encoded.
@@ -556,7 +594,7 @@ function restful_parse_request() {
     'csrf_token' => \RestfulManager::getRequestHttpHeader('X-CSRF-Token'),
   );
 
-  // Allow implemeting modules to alter the request.
+  // Allow implementing modules to alter the request.
   drupal_alter('restful_parse_request', $request);
 
   return $request;
@@ -748,4 +786,37 @@ function restful_date_time_format_element_validate($element, &$form_state) {
       '!link' => l(t('\DateInterval format'), 'http://php.net/manual/en/class.dateinterval.php'),
     )));
   }
+}
+
+/**
+ * Determine if this is the first time we try to switch the user.
+ *
+ * @return bool
+ *   TRUE if this static function was already called.
+ */
+function restful_is_user_switched() {
+  $restful_switch_user = &drupal_static(__FUNCTION__, FALSE);
+
+  if (!$restful_switch_user) {
+    $restful_switch_user = TRUE;
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+/**
+ * Get the query string from php Input.
+ *
+ * @return string
+ *   The query string from request.
+ */
+function _restful_get_query_string_from_php_input() {
+    $query_string = &drupal_static(__FUNCTION__);
+    if (!isset($query_string)) {
+      // In php 5.6 and below php://input can only be read once.
+      $query_string = file_get_contents('php://input');
+    }
+
+    return $query_string;
 }
